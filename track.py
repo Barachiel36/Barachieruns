@@ -32,21 +32,54 @@ for attempt in range(3):
         time.sleep(20)
 html = payload['data']['content']
 # Find the specific gym card and its percentage, regardless of other clubs' values.
-cards = re.findall(r'<div class="clubs-occupancy"[^>]*>(.*?)</div>\s*</div>', html, flags=re.S)
+
+from html.parser import HTMLParser
+
+class GymParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.in_card = False
+        self.card_depth = 0
+        self.card_text = []
+        self.cards = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        classes = attrs.get("class", "").split()
+
+        if tag == "div" and "clubs-occupancy" in classes:
+            self.in_card = True
+            self.card_depth = 1
+            self.card_text = []
+        elif self.in_card and tag == "div":
+            self.card_depth += 1
+
+    def handle_data(self, data):
+        if self.in_card:
+            self.card_text.append(data)
+
+    def handle_endtag(self, tag):
+        if self.in_card and tag == "div":
+            self.card_depth -= 1
+            if self.card_depth == 0:
+                self.cards.append(" ".join(self.card_text))
+                self.in_card = False
+
+parser = GymParser()
+parser.feed(html)
+
 percentage = None
-for card in cards:
-    if 'Savanori' in card and '168' in card:
-        match = re.search(r'clubs-occupancy__percentage[^>]*>\s*(\d+)\s*%', card)
+
+for card in parser.cards:
+    if "Savanoriai" in card and "168" in card:
+        match = re.search(r"(\d+)\s*%", card)
         if match:
             percentage = int(match.group(1))
             break
+
 if percentage is None:
-    # Robust fallback across the known card markup, with a bounded span.
-    match = re.search(r'Savanori[^<]{0,150}</h6>.*?Savanori[^<]{0,100}168.*?clubs-occupancy__percentage[^>]*>\s*(\d+)\s*%', html, re.S | re.I)
-    if match:
-        percentage = int(match.group(1))
-if percentage is None or not 0 <= percentage <= 100:
-    raise RuntimeError('Could not safely identify Savanoriai occupancy; no data saved')
+    raise RuntimeError("Could not find Savanoriai occupancy")
+
 now = datetime.now(ZoneInfo('Europe/Vilnius')).isoformat(timespec='seconds')
 exists = FILE.exists()
 with FILE.open('a', newline='', encoding='utf-8') as f:
