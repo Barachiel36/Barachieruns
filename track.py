@@ -1,3 +1,5 @@
+import time
+import urllib.error
 import csv
 import json
 import re
@@ -8,9 +10,26 @@ from zoneinfo import ZoneInfo
 
 URL = 'https://www.lemongym.lt/wp-json/api/async-render-block?pid=NTY3&bid=YWNmL2NsdWJzLW9jY3VwYW5jeQ==&rest_language=en'
 FILE = Path('occupancy.csv')
-request = urllib.request.Request(URL, headers={'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json'})
-with urllib.request.urlopen(request, timeout=25) as response:
-    payload = json.load(response)
+headers = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/156.0.0.0 Safari/537.36",
+    "Accept": "application/json, text/plain, */*",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Referer": "https://www.lemongym.lt/en/club-occupancy/",
+    "X-Requested-With": "XMLHttpRequest",
+}
+
+request = urllib.request.Request(URL, headers=headers)
+
+for attempt in range(3):
+    try:
+        with urllib.request.urlopen(request, timeout=25) as response:
+            payload = json.load(response)
+        break
+    except urllib.error.HTTPError as error:
+        if error.code not in (429, 500, 502, 503, 504) or attempt == 2:
+            raise
+        print(f"HTTP {error.code}; retrying in 20 seconds...")
+        time.sleep(20)
 html = payload['data']['content']
 # Find the specific gym card and its percentage, regardless of other clubs' values.
 cards = re.findall(r'<div class="clubs-occupancy"[^>]*>(.*?)</div>\s*</div>', html, flags=re.S)
